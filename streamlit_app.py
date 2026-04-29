@@ -865,11 +865,12 @@ if 'Peak_Temperature_C' in chem_filtered_df.columns:
     ]
 
 st.download_button(
-    label='Download filtered chemical composition data as CSV',
+    label='📥 Download Filtered Chemical Composition Data (CSV)',
     data=chem_filtered_df.to_csv(index=False).encode('utf-8'),
     file_name='filtered_chemical_composition_data.csv',
     mime='text/csv',
-    key='chem_download'
+    key='chem_download',
+    type="primary"
 )
 
 # Select elements to plot
