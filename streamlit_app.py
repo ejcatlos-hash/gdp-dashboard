@@ -492,6 +492,33 @@ def append_user_registry_entry(entry):
     updated.to_csv(USER_REGISTRY_FILE, index=False)
 
 
+def validate_uploaded_csv_file(uploaded_file):
+    if not uploaded_file.name.lower().endswith('.csv'):
+        return False, 'Only files with a .csv extension are accepted.'
+
+    uploaded_file.seek(0)
+    sample = uploaded_file.read(8192)
+    uploaded_file.seek(0)
+
+    if b'\x00' in sample:
+        return False, 'Binary data detected. Please upload a text-based CSV file.'
+
+    try:
+        sample.decode('utf-8')
+    except UnicodeDecodeError:
+        try:
+            sample.decode('latin1')
+        except UnicodeDecodeError:
+            return False, 'Unable to read the file as text. Use a valid CSV format.'
+
+    lowered = sample.lower()
+    suspicious_tokens = [b'<?php', b'<script', b'eval(', b'system(', b'os.system', b'subprocess', b'#!/', b'powershell', b'cmd.exe']
+    if any(token in lowered for token in suspicious_tokens):
+        return False, 'Potential executable or script content detected. Please upload a clean CSV file.'
+
+    return True, None
+
+
 def create_dataset_summary(df, top_n_categories=50):
     summary_rows = []
 
@@ -1565,10 +1592,20 @@ SAMPLE_002,ANALYSIS_002,67.8,15.2,12.0,5.0,Mountain_Stream,Schist,18.2,29.1,86.7
         )
 
     # File uploader
+    st.markdown(
+        """
+        **Upload policy:** Only CSV files are accepted. Uploaded datasets are processed temporarily in memory and are not permanently stored or used to overwrite any master dataset, reference database, or metadata table.
+        """
+    )
     uploaded_file = st.file_uploader("Choose CSV file", type="csv")
 
     if uploaded_file is not None:
         try:
+            valid_upload, upload_error = validate_uploaded_csv_file(uploaded_file)
+            if not valid_upload:
+                st.error(f"❌ {upload_error}")
+                st.stop()
+
             # Try different parsing approaches for robustness
             upload_df = None
             parse_error = None
