@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from pathlib import Path
+from datetime import datetime
 import numpy as np
 
 # -----------------------------------------------------------------------------
@@ -362,7 +363,7 @@ def display_upload_results(results_df, upload_df):
 
     # Download results
     st.download_button(
-        label="📥 Download All Match Results",
+        label="📥 Download All Match Results (CSV)",
         data=results_df.to_csv(index=False),
         file_name="batch_garnet_matches.csv",
         mime="text/csv",
@@ -374,6 +375,62 @@ st.set_page_config(
     page_title='Himalayan Garnet Analysis Database, Version 1.0',
     page_icon='💎',
     layout='wide'
+)
+
+st.markdown(
+    """
+    <style>
+        :root {
+            color-scheme: light;
+        }
+        .stApp {
+            background: #f4f7fb;
+        }
+        .stButton>button, .stDownloadButton>button {
+            background-color: #0b3d91;
+            color: white;
+            border-radius: 0.75rem;
+            border: none;
+            padding: 0.85rem 1.2rem;
+            font-weight: 600;
+        }
+        .stButton>button:hover, .stDownloadButton>button:hover {
+            background-color: #092f75;
+        }
+        .css-1d391kg, .css-1yj6hgp, .css-1d391kg div {
+            color: #0f172a;
+        }
+        .css-1d391kg p, .css-1d391kg span {
+            color: #334155;
+        }
+        .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div>div>div {
+            border-radius: 0.65rem;
+        }
+        .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
+            color: #0b3d91;
+        }
+        .hero-header h1, .hero-header p {
+            color: white !important;
+        }
+        .stMarkdown blockquote {
+            background: #eef4ff;
+            border-left: 4px solid #0b3d91;
+            padding: 1rem 1.2rem;
+            border-radius: 0.75rem;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    """
+    <div class="hero-header" style="background: linear-gradient(135deg, #0b3d91 0%, #1d4ed8 100%); padding: 2rem; border-radius: 1rem; color: white; margin-bottom: 1.5rem;">
+        <h1 style="margin:0; font-size:2.6rem; font-weight:700; line-height:1.05;">Himalayan Garnet Analysis Database</h1>
+        <p style="margin:0.75rem 0 0; font-size:1.05rem; max-width:850px; opacity:0.92;">Explore a curated geochemical database of Himalayan garnet analyses with polished filtering, comparison tools, and professional reporting-ready exports.</p>
+    </div>
+    """,
+    unsafe_allow_html=True
 )
 
 # -----------------------------------------------------------------------------
@@ -396,6 +453,43 @@ def get_garnet_data():
     df['Unit'] = df['Garnet_ID'].str.split('-').str[0]
 
     return df
+
+
+USER_REGISTRY_FILE = Path(__file__).parent / 'data' / 'user_registry.csv'
+USER_REGISTRY_COLUMNS = [
+    'timestamp',
+    'name',
+    'institution',
+    'country',
+    'contact',
+    'use_case',
+    'project',
+    'citation',
+    'permission_to_list'
+]
+
+
+def get_user_registry_entries():
+    if not USER_REGISTRY_FILE.exists():
+        return pd.DataFrame(columns=USER_REGISTRY_COLUMNS)
+
+    try:
+        df = pd.read_csv(USER_REGISTRY_FILE)
+    except Exception:
+        df = pd.DataFrame(columns=USER_REGISTRY_COLUMNS)
+
+    # Ensure the expected columns are present
+    for col in USER_REGISTRY_COLUMNS:
+        if col not in df.columns:
+            df[col] = ''
+    return df[USER_REGISTRY_COLUMNS]
+
+
+def append_user_registry_entry(entry):
+    df = get_user_registry_entries()
+    new_row = pd.DataFrame([entry], columns=USER_REGISTRY_COLUMNS)
+    updated = pd.concat([df, new_row], ignore_index=True)
+    updated.to_csv(USER_REGISTRY_FILE, index=False)
 
 
 def create_dataset_summary(df, top_n_categories=50):
@@ -714,11 +808,12 @@ st.dataframe(filtered_df.head(50), width='stretch')
 
 # Download filtered data
 st.download_button(
-    label="📥 Download Filtered Data as CSV",
+    label="📥 Download Filtered Data (CSV)",
     data=filtered_df.to_csv(index=False),
     file_name="filtered_garnet_data.csv",
     mime="text/csv",
-    help="Download the complete filtered dataset based on your current selections"
+    help="Download the complete filtered dataset based on your current selections",
+    type="primary"
 )
 
 # Geographic distribution
@@ -964,11 +1059,12 @@ if 'Peak_Temperature_C' in em_filtered_df.columns:
 st.write(f"**Filtered analyses:** {len(em_filtered_df)}")
 
 st.download_button(
-    label='Download filtered end-member data as CSV',
+    label='📥 Download Filtered End-Member Data (CSV)',
     data=em_filtered_df.to_csv(index=False).encode('utf-8'),
     file_name='filtered_end_member_data.csv',
     mime='text/csv',
-    key='em_download'
+    key='em_download',
+    type='primary'
 )
 
 end_members = ['Almandine_%', 'Spessartine_%', 'Pyrope_%', 'Grossular_%']
@@ -1146,11 +1242,12 @@ if 'Peak_Temperature_C' in pt_filtered_df.columns:
 st.write(f"**Filtered analyses:** {len(pt_filtered_df)}")
 
 st.download_button(
-    label='Download filtered P-T data as CSV',
+    label='📥 Download Filtered P-T Data (CSV)',
     data=pt_filtered_df.to_csv(index=False).encode('utf-8'),
     file_name='filtered_pressure_temperature_data.csv',
     mime='text/csv',
-    key='pt_download'
+    key='pt_download',
+    type='primary'
 )
 
 pt_cols = ['Peak_Pressure_kbar', 'Peak_Temperature_C']
@@ -1459,11 +1556,12 @@ SAMPLE_001,ANALYSIS_001,45.2,32.1,18.7,4.0,River_Section_A,Unknown,25.5,28.5,85.
 SAMPLE_002,ANALYSIS_002,67.8,15.2,12.0,5.0,Mountain_Stream,Schist,18.2,29.1,86.7,Single grain analysis"""
 
         st.download_button(
-            label="📥 Download CSV Template",
+            label="📥 Download CSV Template (CSV)",
             data=template_csv,
             file_name="garnet_comparison_template.csv",
             mime="text/csv",
-            help="Download a template CSV file with the correct format"
+            help="Download a template CSV file with the correct format",
+            type="primary"
         )
 
     # File uploader
@@ -1713,30 +1811,33 @@ col1, col2 = st.columns(2)
 with col1:
     st.subheader("📊 Full Dataset")
     st.download_button(
-        label="Download Complete Dataset (CSV)",
+        label="📥 Download Complete Dataset (CSV)",
         data=garnet_df.to_csv(index=False),
         file_name="himalayan_garnet_database_complete.csv",
         mime="text/csv",
-        help="Download the entire dataset with all analyses"
+        help="Download the entire dataset with all analyses",
+        type="primary"
     )
 
     st.download_button(
-        label="Download Useful Dataset Summary (CSV)",
+        label="📥 Download Dataset Summary (CSV)",
         data=create_dataset_summary(garnet_df).to_csv(index=False),
         file_name="himalayan_garnet_database_summary.csv",
         mime="text/csv",
-        help="This summary includes dataset-level counts, numeric composition and P–T statistics, and categorical breakdowns for country, lithology, location, cluster, and DOI."
+        help="This summary includes dataset-level counts, numeric composition and P–T statistics, and categorical breakdowns for country, lithology, location, cluster, and DOI.",
+        type="primary"
     )
 
 with col2:
     st.subheader("🔍 Filtered Data")
     st.markdown("**Note:** This downloads data based on filters applied in the Data Exploration section above.")
     st.download_button(
-        label="Download Filtered Dataset (CSV)",
+        label="📥 Download Filtered Dataset (CSV)",
         data=filtered_df.to_csv(index=False),
         file_name="himalayan_garnet_database_filtered.csv",
         mime="text/csv",
-        help="Download the dataset filtered by your current selections"
+        help="Download the dataset filtered by your current selections",
+        type="primary"
     )
 
     # Show current filter summary
@@ -1778,14 +1879,67 @@ Vein / pegmatite / aplite | Late-stage felsic veins or pegmatitic intrusions | G
 Pelitic granulite | High-temperature metapelites containing garnet ± kyanite ± sillimanite | Grt-pelitic granulite, Grt-Ky granulite
 Calc-silicate / marble / carbonate | Carbonate- and silicate-bearing metamorphic rocks of calcareous protoliths | Grt-calc-silicate, Grt-marble, Grt-calc-silicate granulite
 Graphitic / tourmaline-bearing metasediments | Metasedimentary rocks enriched in graphite or tourmaline | Grt-graphitic schist, Grt-tourmalinite
-Specialized or unique lithologies | Uncommon or mixed lithologies not included above | Grt-gondite, Grt-charnockite, Grt-magmatic enclave, Grt-schist/gneiss/quartzite
+Specialized or unique lithologies | Uncommon or mixed lithologies not included above | Grt-gondite, Grt-charnockite, Grt-schist/gneiss/quartzite
 Orthogneiss / granitoid gneiss | Felsic to intermediate gneisses of igneous or mixed origin, typically banded and garnet-bearing | Grt-gneiss, Grt-granitic gneiss, Grt-augen gneiss
 """)
 
-st.subheader("📖 Citation Information")
-st.markdown("""
-**Please cite this dataset as:**
-Catlos, Elizabeth. 2026. Replication Data for: Himalayan Garnet Analysis Database, Version 1.0. Texas Data Repository. https://doi.org/10.18738/T8/GZLMUW
+# Community use and impact section
+st.header('Community Use & Impact', divider='gray')
+st.markdown(
+    """
+    If this tool supported your work, please cite it and let us know using the form below.
+    """
+)
 
-Dataset is copyright under CC0 1.0.
-""")
+with st.form('user_registry_form'):
+    col1, col2 = st.columns(2)
+    with col1:
+        user_name = st.text_input('Name')
+        institution = st.text_input('Institution')
+        country = st.text_input('Country')
+    with col2:
+        contact_info = st.text_input('Email or Website / ORCID')
+        project_name = st.text_input('Project / Publication / Course Name')
+        citation_link = st.text_input('Optional citation / DOI / project page')
+
+    use_case = st.text_area('How did you use this site?', height=140)
+    permission_to_list = st.checkbox('You may list my name/project on this site.', value=False)
+
+    submitted = st.form_submit_button('Tell us how you used this site')
+
+    if submitted:
+        entry = {
+            'timestamp': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+            'name': user_name,
+            'institution': institution,
+            'country': country,
+            'contact': contact_info,
+            'use_case': use_case,
+            'project': project_name,
+            'citation': citation_link,
+            'permission_to_list': 'Yes' if permission_to_list else 'No'
+        }
+        append_user_registry_entry(entry)
+        st.success('Thank you! Your entry has been recorded.')
+        if permission_to_list:
+            st.info('With permission, your entry may be shown below; otherwise it is stored privately.')
+        else:
+            st.info('Your entry is saved for impact tracking only.')
+
+# Approved community entries
+approved_entries = get_user_registry_entries()
+approved_entries = approved_entries[approved_entries['permission_to_list'] == 'Yes']
+if not approved_entries.empty:
+    st.subheader('Community impact examples')
+    display_entries = approved_entries[['name', 'institution', 'country', 'project', 'citation', 'use_case']].copy()
+    display_entries = display_entries.rename(columns={
+        'name': 'Name',
+        'institution': 'Institution',
+        'country': 'Country',
+        'project': 'Project / Course',
+        'citation': 'Citation / Link',
+        'use_case': 'Use case'
+    })
+    st.dataframe(display_entries.head(20), width='stretch')
+else:
+    st.info('No entries have been approved for listing yet.')

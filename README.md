@@ -1,19 +1,29 @@
-# :earth_americas: GDP dashboard template
+# Himalayan Garnet Analysis Database
 
-A simple Streamlit app showing the GDP of different countries in the world.
+A Streamlit research dashboard for Himalayan garnet compositional data, provenance comparison, and community impact tracking.
 
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://gdp-dashboard-template.streamlit.app/)
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://streamlit.io)
 
-### How to run it on your own machine
+### Local development
 
 1. Install the requirements
 
-   ```
-   $ pip install -r requirements.txt
+   ```bash
+   pip install -r requirements.txt
    ```
 
 2. Run the app
 
+   ```bash
+   streamlit run streamlit_app.py
    ```
-   $ streamlit run streamlit_app.py
-   ```
+
+### Deploying as a website
+
+This repository is ready for deployment on Streamlit Community Cloud.
+
+1. Push the repository to GitHub.
+2. Sign in to [Streamlit Cloud](https://streamlit.io/cloud).
+3. Create a new app and point it to this repository and `streamlit_app.py`.
+
+Once deployed, the app will be live at a public Streamlit URL.
