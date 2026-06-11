@@ -5,42 +5,123 @@ import plotly.graph_objects as go
 from pathlib import Path
 from datetime import datetime
 import numpy as np
+from sklearn.metrics import pairwise_distances
 
 # -----------------------------------------------------------------------------
 # Helper functions for garnet comparison
 
 def calculate_aitchison_distances(database_df, input_composition):
-    """Calculate Aitchison distances between input composition and database"""
+    """Calculate Aitchison distances between input composition and database.
+
+    This function uses a fast path when a precomputed CLR of the database
+    is available via `get_db_clr()`.
+    """
     endmember_cols = ['Almandine_%', 'Pyrope_%', 'Grossular_%', 'Spessartine_%']
 
-    # Get database compositions
-    db_compositions = database_df[endmember_cols].copy()
+    # Ensure endmembers exist
+    db = database_df.copy()
+    db_compositions = db[endmember_cols].fillna(0.0).replace(0, 0.001)
 
-    # Convert input to series
-    input_series = pd.Series(input_composition)
+    # Convert input to series and handle zeros
+    input_array = np.array([
+        input_composition['Almandine_%'],
+        input_composition['Pyrope_%'],
+        input_composition['Grossular_%'],
+        input_composition['Spessartine_%']
+    ], dtype=float)
+    input_array = np.where(input_array == 0, 0.001, input_array)
 
-    # Replace zeros with small value (0.001) for log transformation
-    db_compositions = db_compositions.replace(0, 0.001)
-    input_series = input_series.replace(0, 0.001)
+    # Attempt to use cached DB CLR for speed
+    try:
+        db_clr, db_index = get_db_clr()
+        # compute input clr
+        input_clr = clr_transform_array(input_array.reshape(1, -1))[0]
+        # Euclidean distance in CLR space
+        distances = np.linalg.norm(db_clr - input_clr, axis=1)
+        results = db.loc[db_index].copy()
+    except Exception:
+        # Fallback: compute CLR on the fly
+        def clr_series(arr):
+            arr = np.where(np.array(arr, dtype=float) == 0, 0.001, arr.astype(float))
+            return np.log(arr / np.exp(np.mean(np.log(arr))))
 
-    # Calculate centered log-ratio (clr) transformation
-    def clr_transform(composition):
-        log_ratios = np.log(composition / np.exp(np.mean(np.log(composition))))
-        return log_ratios
+        db_clr_df = db_compositions.apply(lambda row: clr_series(row.values), axis=1)
+        input_clr = clr_series(input_array)
+        distances = np.sqrt(((np.vstack(db_clr_df.values) - input_clr) ** 2).sum(axis=1))
+        results = db.copy()
 
-    # Apply clr transformation
-    db_clr = db_compositions.apply(clr_transform, axis=1)
-    input_clr = clr_transform(input_series)
-
-    # Calculate Euclidean distances in clr space
-    distances = np.sqrt(((db_clr - input_clr) ** 2).sum(axis=1))
-
-    # Create results dataframe
-    results = database_df.copy()
     results['aitchison_distance'] = distances
     results['similarity_score'] = 1.0 / (1.0 + distances)
-
     return results
+
+
+def clr_transform_array(arr_2d):
+    """Compute CLR transform for a 2D numpy array of compositions.
+
+    Replaces zeros with small value and returns transformed array.
+    """
+    arr = np.array(arr_2d, dtype=float)
+    arr[arr == 0] = 0.001
+    log_arr = np.log(arr)
+    gm = np.exp(np.mean(log_arr, axis=1, keepdims=True))
+    clr = np.log(arr / gm)
+    return clr
+
+
+@st.cache_data
+def get_db_clr():
+    """Return cached CLR-transformed database and its row positions.
+
+    This avoids recomputing the CLR for every comparison.
+    """
+    endmember_cols = ['Almandine_%', 'Pyrope_%', 'Grossular_%', 'Spessartine_%']
+    df = garnet_df.copy()
+    comps = df[endmember_cols].fillna(0.0).replace(0, 0.001).to_numpy(dtype=float)
+    db_clr = clr_transform_array(comps)
+    return db_clr, np.arange(len(df), dtype=int)
+
+
+def batch_aitchison_distances_for_upload(db_df, upload_array, matches_per_sample=5, chunk_size=256):
+    """Compute Aitchison distances for multiple uploaded samples and return matches.
+
+    upload_array: numpy array shape (n_uploads, 4)
+    Returns a dataframe concatenating top matches per uploaded sample.
+    """
+    endmember_cols = ['Almandine_%', 'Pyrope_%', 'Grossular_%', 'Spessartine_%']
+    db_clr, db_index = get_db_clr()
+
+    # Ensure upload_array shape
+    X_clr = clr_transform_array(upload_array)
+
+    all_rows = []
+    # Compute pairwise distances in chunks for memory efficiency
+    for start in range(0, X_clr.shape[0], chunk_size):
+        end = min(start + chunk_size, X_clr.shape[0])
+        chunk = X_clr[start:end]
+        dists = pairwise_distances(chunk, db_clr, metric='euclidean', n_jobs=-1)
+        for i in range(dists.shape[0]):
+            row_idx = start + i
+            dist_row = dists[i]
+            top_idx = np.argsort(dist_row)[:matches_per_sample]
+            for rank, tidx in enumerate(top_idx, start=1):
+                db_row = db_df.iloc[tidx].copy()
+                db_row['aitchison_distance'] = dist_row[tidx]
+                db_row['similarity_score'] = 1.0 / (1.0 + dist_row[tidx])
+                db_row['match_rank'] = rank
+                all_rows.append((row_idx, db_row))
+
+    if not all_rows:
+        return pd.DataFrame()
+
+    # Build final dataframe
+    records = []
+    for row_idx, db_row in all_rows:
+        rec = db_row.to_dict()
+        rec['uploaded_row'] = int(row_idx)
+        records.append(rec)
+
+    results_df = pd.DataFrame.from_records(records)
+    return results_df
 
 
 def haversine_distance_km(lat1, lon1, lat2, lon2):
@@ -182,7 +263,7 @@ def display_comparison_results(results_df, input_composition, method):
                 title="Matched Units",
                 labels={'x': 'Unit', 'y': 'Count'}
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
     with col2:
         # Lithology distribution
@@ -194,14 +275,14 @@ def display_comparison_results(results_df, input_composition, method):
                 title="Matched Lithologies",
                 labels={'x': 'Lithology', 'y': 'Count'}
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
     # Map if coordinates available
     if 'Latitude' in results_df.columns and 'Longitude' in results_df.columns:
         map_data = results_df.dropna(subset=['Latitude', 'Longitude']).head(50)
         if len(map_data) > 0:
             st.subheader("Locations of Top Matching Garnets (first 50 shown)")
-            fig = px.scatter_mapbox(
+            fig = px.scatter_map(
                 map_data,
                 lat='Latitude',
                 lon='Longitude',
@@ -212,7 +293,7 @@ def display_comparison_results(results_df, input_composition, method):
                 height=400
             )
             fig.update_layout(mapbox_style="open-street-map")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
     # Download button
     st.download_button(
@@ -262,7 +343,7 @@ def display_automatic_interpretation(results_df, total_matches=None):
         map_data = results_df.dropna(subset=['Latitude', 'Longitude'])
         if len(map_data) > 0:
             st.subheader("Geographic Distribution of All Matches")
-            fig = px.scatter_mapbox(
+            fig = px.scatter_map(
                 map_data,
                 lat='Latitude',
                 lon='Longitude',
@@ -274,7 +355,7 @@ def display_automatic_interpretation(results_df, total_matches=None):
                 height=500
             )
             fig.update_layout(mapbox_style='open-street-map')
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
     st.info("Interpretation note: These are compositional similarities, not unique source assignments.")
 
@@ -294,7 +375,29 @@ def display_upload_results(results_df, upload_df):
 
     with col3:
         avg_distance = results_df['aitchison_distance'].mean()
+        min_distance = results_df['aitchison_distance'].min()
         st.metric("Avg Aitchison Distance", f"{avg_distance:.3f}")
+        st.metric("Best Aitchison Distance", f"{min_distance:.3f}")
+        if 'match_distance_km' in results_df.columns and results_df['match_distance_km'].notna().any():
+            closest_physical = results_df['match_distance_km'].min()
+            st.metric("Closest Match Distance (km)", f"{closest_physical:.1f}")
+
+    # Summary of distances per uploaded sample
+    st.subheader("Closest Distance per Uploaded Sample")
+    sample_distance = (
+        results_df.groupby('uploaded_sample_id', dropna=False)['aitchison_distance']
+        .min()
+        .reset_index()
+        .rename(columns={'aitchison_distance': 'Best_Aitchison_Distance'})
+        .sort_values('Best_Aitchison_Distance')
+    )
+    if 'match_distance_km' in results_df.columns:
+        sample_distance['Best_Physical_Distance_km'] = (
+            results_df.groupby('uploaded_sample_id', dropna=False)['match_distance_km']
+            .min()
+            .reset_index(drop=True)
+        )
+    st.dataframe(sample_distance.head(20), width='stretch')
 
     # Results table (first 100 rows)
     st.subheader("Match Results")
@@ -303,6 +406,8 @@ def display_upload_results(results_df, upload_df):
         'Garnet_ID', 'Author_Sample_ID', 'Country', 'Location', 'Unit',
         'Lithology_Category', 'DOI', 'aitchison_distance'
     ]
+    if 'match_distance_km' in results_df.columns:
+        display_cols.append('match_distance_km')
 
     st.dataframe(results_df[display_cols].head(100), width='stretch')
 
@@ -318,7 +423,7 @@ def display_upload_results(results_df, upload_df):
             title="Dominant Matched Units",
             labels={'x': 'Unit', 'y': 'Match Count'}
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     with col2:
         # Dominant matched lithologies
@@ -329,7 +434,7 @@ def display_upload_results(results_df, upload_df):
             title="Dominant Matched Lithologies",
             labels={'x': 'Lithology', 'y': 'Match Count'}
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     # Aitchison distance histogram
     st.subheader("Aitchison Distance Distribution")
@@ -340,14 +445,14 @@ def display_upload_results(results_df, upload_df):
         labels={'aitchison_distance': 'Aitchison Distance'},
         nbins=50
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
     # Map of matched locations
     if 'Latitude' in results_df.columns and 'Longitude' in results_df.columns:
         map_data = results_df.dropna(subset=['Latitude', 'Longitude']).head(200)
         if len(map_data) > 0:
             st.subheader("Map of Matched Locations")
-            fig = px.scatter_mapbox(
+            fig = px.scatter_map(
                 map_data,
                 lat='Latitude',
                 lon='Longitude',
@@ -359,7 +464,7 @@ def display_upload_results(results_df, upload_df):
                 height=500
             )
             fig.update_layout(mapbox_style="open-street-map")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
     # Download results
     st.download_button(
@@ -372,7 +477,7 @@ def display_upload_results(results_df, upload_df):
 
 # Set the title and favicon that appear in the Browser's tab bar.
 st.set_page_config(
-    page_title='Himalayan Garnet Analysis Database, Version 1.0',
+    page_title='💎 Himalayan Garnet Analysis Database',
     page_icon='💎',
     layout='wide'
 )
@@ -427,7 +532,8 @@ st.markdown(
     """
     <div class="hero-header" style="background: linear-gradient(135deg, #0b3d91 0%, #1d4ed8 100%); padding: 2rem; border-radius: 1rem; color: white; margin-bottom: 1.5rem;">
         <h1 style="margin:0; font-size:2.6rem; font-weight:700; line-height:1.05;">Himalayan Garnet Analysis Database</h1>
-        <p style="margin:0.75rem 0 0; font-size:1.05rem; max-width:850px; opacity:0.92;">Explore a curated geochemical database of Himalayan garnet analyses with polished filtering, comparison tools, and professional reporting-ready exports.</p>
+        <p style="margin:0.75rem 0 0; font-size:1.05rem; max-width:850px; opacity:0.92;">A professional, geochemically curated database of Himalayan garnet analyses with filtering, comparison, and reporting tools.</p>
+        <p style="margin:0.8rem 0 0; font-size:0.95rem; max-width:850px; opacity:0.85;">Dataset version 1.0. Please cite: Catlos, Elizabeth. 2026. Replication Data for: Himalayan Garnet Analysis Database, Version 1.0. Texas Data Repository. https://doi.org/10.18738/T8/GZLMUW. CC0 1.0.</p>
     </div>
     """,
     unsafe_allow_html=True
@@ -436,6 +542,7 @@ st.markdown(
 # -----------------------------------------------------------------------------
 # Declare some useful functions.
 
+@st.cache_data
 @st.cache_data
 def get_garnet_data():
     """Grab garnet analysis data from a CSV file.
@@ -690,23 +797,17 @@ def create_dataset_summary(df, top_n_categories=50):
 
 
 garnet_df = get_garnet_data()
+# Precompute dominant garnet for database (for filtering/annotation)
+endmember_cols = ['Almandine_%', 'Pyrope_%', 'Grossular_%', 'Spessartine_%']
+if all(col in garnet_df.columns for col in endmember_cols):
+    garnet_df['dominant_garnet'] = garnet_df[endmember_cols].idxmax(axis=1)
+else:
+    garnet_df['dominant_garnet'] = None
 
 # -----------------------------------------------------------------------------
 # Draw the actual page
 
 # Set the title that appears at the top of the page.
-'''
-# 💎 Himalayan Garnet Analysis Database, Version 1.0
-
-Explore a curated geochemical database of >12,000 garnet analyses from across the Himalaya, including major-element chemistry, calculated garnet components, lithologic context, and geological metadata.
-
-Citation
-Please cite this dataset as: Catlos, Elizabeth. 2026. Replication Data for: Himalayan Garnet Analysis Database, Version 1.0. Texas Data Repository. https://doi.org/10.18738/T8/GZLMUW Dataset it copyright under CC0 1.0.
-'''
-
-# Add some spacing
-''
-''
 
 # Dataset overview
 st.header('Dataset Overview', divider='gray')
@@ -747,6 +848,41 @@ UNIT_MAPPING = {
 # Create descriptive unit options
 unit_options = [UNIT_MAPPING.get(unit, unit) for unit in sorted(garnet_df['Unit'].unique())]
 
+# Ensure session_state keys exist with defaults to avoid widget/session conflicts
+# Compute dataset bounds for sensible defaults (guard against NaNs)
+lat_vals = garnet_df['Latitude'].dropna()
+lon_vals = garnet_df['Longitude'].dropna()
+data_min_lat = float(lat_vals.min()) if not lat_vals.empty else 14.0
+data_max_lat = float(lat_vals.max()) if not lat_vals.empty else 38.0
+data_min_lon = float(lon_vals.min()) if not lon_vals.empty else 71.0
+data_max_lon = float(lon_vals.max()) if not lon_vals.empty else 96.0
+
+defaults = {
+    'filter_countries': [],
+    'filter_units': [],
+    'filter_lithologies': [],
+    # Use dataset min/max so no rows are excluded by default
+    'min_lat': data_min_lat,
+    'max_lat': data_max_lat,
+    'min_lon': data_min_lon,
+    'max_lon': data_max_lon,
+    'clear_filters_flag': False
+}
+for k, v in defaults.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
+
+# If the clear-filters button was clicked previously, reset session keys before creating widgets
+if st.session_state.get('clear_filters_flag', False):
+    st.session_state['filter_countries'] = []
+    st.session_state['filter_units'] = []
+    st.session_state['filter_lithologies'] = []
+    st.session_state['min_lat'] = 14.0
+    st.session_state['max_lat'] = 38.0
+    st.session_state['min_lon'] = 71.0
+    st.session_state['max_lon'] = 96.0
+    st.session_state['clear_filters_flag'] = False
+
 # Filters
 st.header('Data Exploration', divider='gray')
 
@@ -756,56 +892,63 @@ with col1:
     selected_countries = st.multiselect(
         'Filter by Country',
         options=sorted(garnet_df['Country'].unique()),
-        default=[]
+        key='filter_countries'
     )
 
     selected_unit_descriptions = st.multiselect(
         'Filter by Unit',
         options=unit_options,
-        default=[]
+        key='filter_units'
     )
 
 with col2:
     selected_lithologies = st.multiselect(
         'Filter by Lithology',
         options=sorted(garnet_df['Lithology_Category'].unique()),
-        default=[]
+        key='filter_lithologies'
     )
 
 with col3:
     st.subheader("Filter by Location")
     min_lat = st.number_input(
         'Min Latitude',
-        min_value=14.0,
-        max_value=38.0,
-        value=14.0,
+        min_value=data_min_lat,
+        max_value=data_max_lat,
         step=0.1,
-        format="%.3f"
+        format="%.3f",
+        key='min_lat'
     )
     max_lat = st.number_input(
         'Max Latitude',
-        min_value=14.0,
-        max_value=38.0,
-        value=38.0,
+        min_value=data_min_lat,
+        max_value=data_max_lat,
         step=0.1,
-        format="%.3f"
+        format="%.3f",
+        key='max_lat'
     )
     min_lon = st.number_input(
         'Min Longitude',
-        min_value=71.0,
-        max_value=96.0,
-        value=71.0,
+        min_value=data_min_lon,
+        max_value=data_max_lon,
         step=0.1,
-        format="%.3f"
+        format="%.3f",
+        key='min_lon'
     )
     max_lon = st.number_input(
         'Max Longitude',
-        min_value=71.0,
-        max_value=96.0,
-        value=96.0,
+        min_value=data_min_lon,
+        max_value=data_max_lon,
         step=0.1,
-        format="%.3f"
+        format="%.3f",
+        key='max_lon'
     )
+
+    # Clear filters button (use callback to update session_state safely)
+    def _clear_all_filters():
+        # Set a flag so that on the next rerun we update widget values before they are instantiated
+        st.session_state['clear_filters_flag'] = True
+
+    st.button('Clear all filters', on_click=_clear_all_filters, key='clear_filters_explore')
 
 # Apply filters
 filtered_df = garnet_df.copy()
@@ -843,82 +986,83 @@ st.download_button(
     type="primary"
 )
 
-# Geographic distribution
-st.header('Geographic Distribution', divider='gray')
+# Geographic distribution (deferred inside expander to speed initial load)
+with st.expander("Geographic Distribution & Maps (click to load)", expanded=False):
+    st.header('Geographic Distribution', divider='gray')
 
-# Check if we have coordinate data
-if 'Latitude' in filtered_df.columns and 'Longitude' in filtered_df.columns:
-    # Remove rows with missing coordinates
-    map_data = filtered_df.dropna(subset=['Latitude', 'Longitude'])
+    # Check if we have coordinate data
+    if 'Latitude' in filtered_df.columns and 'Longitude' in filtered_df.columns:
+        # Remove rows with missing coordinates
+        map_data = filtered_df.dropna(subset=['Latitude', 'Longitude'])
 
-    if len(map_data) > 0:
-        st.subheader(f"Sample Locations ({len(map_data)} points)")
+        if len(map_data) > 0:
+            st.subheader(f"Sample Locations ({len(map_data)} points)")
 
-        # Create scatter plot on map
-        # Choose color variable
-        color_options = ['Country', 'Lithology_Category', 'Elevation_m', 'Peak_Pressure_kbar', 'Peak_Temperature_C', 'Almandine_%', 'Spessartine_%', 'Pyrope_%', 'Grossular_%']
-        available_colors = [opt for opt in color_options if opt in map_data.columns and len(map_data[opt].unique()) > 1]
+            # Create scatter plot on map
+            # Choose color variable
+            color_options = ['Country', 'Lithology_Category', 'Elevation_m', 'Peak_Pressure_kbar', 'Peak_Temperature_C', 'Almandine_%', 'Spessartine_%', 'Pyrope_%', 'Grossular_%']
+            available_colors = [opt for opt in color_options if opt in map_data.columns and len(map_data[opt].unique()) > 1]
 
-        # Map style options
-        map_styles = {
-            "Open Street Map": "open-street-map",
-            "CartoDB Positron": "carto-positron",
-            "CartoDB Dark Matter": "carto-darkmatter"
-        }
+            # Map style options
+            map_styles = {
+                "Open Street Map": "open-street-map",
+                "CartoDB Positron": "carto-positron",
+                "CartoDB Dark Matter": "carto-darkmatter"
+            }
 
-        col1, col2 = st.columns(2)
+            col1, col2 = st.columns(2)
 
-        with col1:
-            if available_colors:
-                color_by = st.selectbox(
-                    'Color points by:',
-                    available_colors,
-                    index=0
+            with col1:
+                if available_colors:
+                    color_by = st.selectbox(
+                        'Color points by:',
+                        available_colors,
+                        index=0
+                    )
+                else:
+                    color_by = None
+
+            with col2:
+                selected_map_style = st.selectbox(
+                    'Map style:',
+                    options=list(map_styles.keys()),
+                    index=0  # Esri World Topo as default
                 )
+
+            fig = px.scatter_map(
+                map_data,
+                lat='Latitude',
+                lon='Longitude',
+                hover_name='Location',
+                hover_data=['Country', 'Lithology_Category', 'Garnet_ID', 'Elevation_m'],
+                color=color_by,
+                title="Garnet Sample Locations",
+                zoom=5,
+                height=500
+            )
+
+            fig.update_layout(
+                mapbox_style=map_styles[selected_map_style],
+                margin={"r":0,"t":30,"l":0,"b":0}
+            )
+
+            st.plotly_chart(fig, width='stretch')
+
+            # Summary statistics by country
+            if len(map_data['Country'].unique()) > 1:
+                st.subheader("Samples by Country")
+                country_counts = map_data['Country'].value_counts()
+                fig_country = px.bar(
+                    x=country_counts.index,
+                    y=country_counts.values,
+                    title="Number of Samples by Country",
+                    labels={'x': 'Country', 'y': 'Number of Samples'}
+                )
+                st.plotly_chart(fig_country, width='stretch')
             else:
-                color_by = None
-
-        with col2:
-            selected_map_style = st.selectbox(
-                'Map style:',
-                options=list(map_styles.keys()),
-                index=0  # Esri World Topo as default
-            )
-
-        fig = px.scatter_mapbox(
-            map_data,
-            lat='Latitude',
-            lon='Longitude',
-            hover_name='Location',
-            hover_data=['Country', 'Lithology_Category', 'Garnet_ID', 'Elevation_m'],
-            color=color_by,
-            title="Garnet Sample Locations",
-            zoom=5,
-            height=500
-        )
-
-        fig.update_layout(
-            mapbox_style=map_styles[selected_map_style],
-            margin={"r":0,"t":30,"l":0,"b":0}
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
-
-        # Summary statistics by country
-        if len(map_data['Country'].unique()) > 1:
-            st.subheader("Samples by Country")
-            country_counts = map_data['Country'].value_counts()
-            fig_country = px.bar(
-                x=country_counts.index,
-                y=country_counts.values,
-                title="Number of Samples by Country",
-                labels={'x': 'Country', 'y': 'Number of Samples'}
-            )
-            st.plotly_chart(fig_country, use_container_width=True)
+                st.info("No coordinate data available for mapping")
     else:
-        st.info("No coordinate data available for mapping")
-else:
-    st.info("No latitude/longitude columns found for mapping")
+        st.info("No latitude/longitude columns found for mapping")
 
 # Chemical composition plots
 st.header('Chemical Composition Analysis', divider='gray')
@@ -1015,7 +1159,7 @@ if selected_elements:
                 title=f"Distribution of {element}",
                 nbins=50
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
 # Garnet end-member compositions
 st.header('Garnet End-Member Compositions', divider='gray')
@@ -1111,7 +1255,7 @@ if available_end_members:
         title="Average Garnet End-Member Compositions",
         labels={'x': 'End Member', 'y': 'Percentage (%)'}
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
     # Ternary diagram if we have the main components
     required_components = ['Almandine_%', 'Pyrope_%', 'Grossular_%', 'Spessartine_%']
@@ -1198,7 +1342,7 @@ if available_end_members:
                 title=f"Garnet Compositions in {ternary_config['title']} Space"
             )
         
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
 # P-T conditions
 st.header('Pressure-Temperature Conditions', divider='gray')
@@ -1297,7 +1441,7 @@ if available_pt:
                 'Peak_Pressure_kbar': 'Pressure (kbar)'
             }
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     else:
         st.info("No P-T data available for selected filters")
 
@@ -1802,35 +1946,104 @@ SAMPLE_002,ANALYSIS_002,67.8,15.2,12.0,5.0,Mountain_Stream,Schist,18.2,29.1,86.7
             # Matches per sample
             matches_per_sample = st.selectbox("Matches per uploaded garnet", [1, 3, 5, 10], index=2)
 
+            # Dominant garnet options
+            st.write("\n")
+            show_dominant = st.checkbox("Show dominant garnet for uploaded samples", value=True)
+            apply_dominant_filter = st.checkbox("Apply dominant-garnet filter when matching (restrict DB to same dominant)", value=False)
+
             if st.button("Compare Uploaded Dataset", type="primary"):
                 with st.spinner("Comparing dataset... This may take a moment."):
-                    # Process each uploaded sample
-                    all_results = []
-                    for idx, row in std_df.iterrows():
-                        sample_comp = {
-                            'Almandine_%': row['almandine_%'],
-                            'Pyrope_%': row['pyrope_%'],
-                            'Grossular_%': row['grossular_%'],
-                            'Spessartine_%': row['spessartine_%']
-                        }
+                    # Compute dominant garnet for uploaded data (based on provided end-members)
+                    em_cols_lower = ['almandine_%', 'pyrope_%', 'grossular_%', 'spessartine_%']
+                    std_df['dominant_garnet'] = std_df[em_cols_lower].idxmax(axis=1).str.replace('_%', '_%').str.title()
 
-                        sample_results = calculate_aitchison_distances(garnet_df, sample_comp)
-                        top_matches = sample_results.head(matches_per_sample).copy()
+                    # Prepare upload array (order: Almandine, Pyrope, Grossular, Spessartine)
+                    upload_array = std_df[em_cols_lower].to_numpy(dtype=float)
 
-                        # Add uploaded sample info
-                        top_matches['uploaded_sample_id'] = row['sample_id']
-                        top_matches['uploaded_analysis_id'] = row['analysis_id']
-                        top_matches['match_rank'] = range(1, len(top_matches) + 1)
+                    # If applying dominant filter, group uploads by their dominant and match against filtered DB subsets
+                    all_results_list = []
+                    if apply_dominant_filter:
+                        # For each unique dominant value in uploads
+                        for dom_value, group in std_df.groupby(std_df['dominant_garnet']):
+                            # Find DB indices matching that dominant value
+                            db_mask = garnet_df['dominant_garnet'] == dom_value
+                            if db_mask.sum() == 0:
+                                # No matches in DB for this dominant; skip
+                                continue
+                            db_subset = garnet_df[db_mask]
+                            subset_indices = db_subset.index.to_numpy()
+                            # Compute CLR of DB subset (use cached full DB CLR and slice)
+                            db_clr_full, db_index_full = get_db_clr()
+                            subset_positions = np.where(np.isin(db_index_full, subset_indices))[0]
+                            db_clr_subset = db_clr_full[subset_positions]
 
-                        all_results.append(top_matches)
+                            # Prepare upload rows for this group
+                            group_rows = group.index.to_numpy()
+                            group_array = std_df.loc[group_rows, em_cols_lower].to_numpy(dtype=float)
+                            group_clr = clr_transform_array(group_array)
 
-                    results_df = pd.concat(all_results, ignore_index=True)
+                            # Compute distances and select top matches
+                            dists = pairwise_distances(group_clr, db_clr_subset, metric='euclidean', n_jobs=-1)
+                            for i_local, row_idx in enumerate(group_rows):
+                                dist_row = dists[i_local]
+                                top_idx = np.argsort(dist_row)[:matches_per_sample]
+                                for rank, tidx in enumerate(top_idx, start=1):
+                                    db_pos = subset_positions[tidx]
+                                    db_row = garnet_df.iloc[db_index_full[db_pos]].copy()
+                                    rec = db_row.to_dict()
+                                    rec['aitchison_distance'] = float(dist_row[tidx])
+                                    rec['similarity_score'] = float(1.0 / (1.0 + dist_row[tidx]))
+                                    rec['uploaded_row'] = int(row_idx)
+                                    rec['match_rank'] = rank
+                                    all_results_list.append(rec)
+                    else:
+                        # Fast batch compute across entire DB
+                        results_batch = batch_aitchison_distances_for_upload(garnet_df, upload_array, matches_per_sample)
+                        if not results_batch.empty:
+                            for _, r in results_batch.iterrows():
+                                rec = r.to_dict()
+                                # uploaded_row refers to the zero-based position in the upload
+                                rec['uploaded_row'] = int(rec.get('uploaded_row', -1))
+                                all_results_list.append(rec)
 
-                    # Display results
-                    st.success(f"Comparison complete! Found {len(results_df)} matches.")
+                    if not all_results_list:
+                        results_df = pd.DataFrame()
+                    else:
+                        results_df = pd.DataFrame.from_records(all_results_list)
 
-                    # Summary statistics
-                    display_upload_results(results_df, std_df)
+                    # Add uploaded identifiers back into results
+                    if not results_df.empty:
+                        results_df['uploaded_sample_id'] = results_df['uploaded_row'].apply(lambda i: std_df.iloc[int(i)]['sample_id'] if (i is not None and i >= 0) else '')
+                        results_df['uploaded_analysis_id'] = results_df['uploaded_row'].apply(lambda i: std_df.iloc[int(i)]['analysis_id'] if (i is not None and i >= 0) else '')
+                        if 'latitude' in std_df.columns and 'longitude' in std_df.columns:
+                            results_df['uploaded_latitude'] = results_df['uploaded_row'].apply(
+                                lambda i: float(std_df.iloc[int(i)]['latitude']) if (i is not None and i >= 0 and pd.notna(std_df.iloc[int(i)]['latitude'])) else np.nan
+                            )
+                            results_df['uploaded_longitude'] = results_df['uploaded_row'].apply(
+                                lambda i: float(std_df.iloc[int(i)]['longitude']) if (i is not None and i >= 0 and pd.notna(std_df.iloc[int(i)]['longitude'])) else np.nan
+                            )
+                        else:
+                            results_df['uploaded_latitude'] = np.nan
+                            results_df['uploaded_longitude'] = np.nan
+
+                        if 'Latitude' in results_df.columns and 'Longitude' in results_df.columns:
+                            results_df['Latitude'] = pd.to_numeric(results_df['Latitude'], errors='coerce')
+                            results_df['Longitude'] = pd.to_numeric(results_df['Longitude'], errors='coerce')
+                            valid_geo = results_df[['uploaded_latitude', 'uploaded_longitude', 'Latitude', 'Longitude']].notna().all(axis=1)
+                            results_df.loc[valid_geo, 'match_distance_km'] = haversine_distance_km(
+                                results_df.loc[valid_geo, 'uploaded_latitude'],
+                                results_df.loc[valid_geo, 'uploaded_longitude'],
+                                results_df.loc[valid_geo, 'Latitude'],
+                                results_df.loc[valid_geo, 'Longitude']
+                            )
+                        else:
+                            results_df['match_distance_km'] = np.nan
+
+                    if results_df.empty:
+                        st.warning("No matches found for the uploaded dataset (after applying filters).")
+                    else:
+                        st.success(f"Comparison complete! Found {len(results_df)} matches.")
+                        display_upload_results(results_df, std_df)
 
         except Exception as e:
             st.error(f"❌ Unexpected error processing file: {str(e)}")
@@ -1882,6 +2095,12 @@ with col2:
         st.info(f"📋 Current filters applied: {len(filtered_df)} of {len(garnet_df)} analyses selected")
     else:
         st.info("📋 No filters applied - full dataset available")
+
+    # Provide a Clear all filters button in the Download Data area
+    def _download_clear_filters():
+        st.session_state['clear_filters_flag'] = True
+
+    st.button('Clear all filters', on_click=_download_clear_filters, key='clear_filters_download')
 
 st.subheader("📋 Data Dictionary")
 st.markdown("""
