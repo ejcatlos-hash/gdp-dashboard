@@ -292,7 +292,7 @@ def display_comparison_results(results_df, input_composition, method):
                 zoom=5,
                 height=400
             )
-            fig.update_layout(mapbox_style="open-street-map")
+            fig.update_layout(map={"style": "open-street-map"})
             st.plotly_chart(fig, width='stretch')
 
     # Download button
@@ -354,7 +354,7 @@ def display_automatic_interpretation(results_df, total_matches=None):
                 zoom=4,
                 height=500
             )
-            fig.update_layout(mapbox_style='open-street-map')
+            fig.update_layout(map={"style": "open-street-map"})
             st.plotly_chart(fig, width='stretch')
 
     st.info("Interpretation note: These are compositional similarities, not unique source assignments.")
@@ -463,7 +463,7 @@ def display_upload_results(results_df, upload_df):
                 zoom=5,
                 height=500
             )
-            fig.update_layout(mapbox_style="open-street-map")
+            fig.update_layout(map={"style": "open-street-map"})
             st.plotly_chart(fig, width='stretch')
 
     # Download results
@@ -1042,7 +1042,7 @@ with st.expander("Geographic Distribution & Maps (click to load)", expanded=Fals
             )
 
             fig.update_layout(
-                mapbox_style=map_styles[selected_map_style],
+                map={"style": map_styles[selected_map_style]},
                 margin={"r":0,"t":30,"l":0,"b":0}
             )
 
