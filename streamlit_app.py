@@ -989,6 +989,7 @@ st.download_button(
 # Geographic distribution (deferred inside expander to speed initial load)
 with st.expander("Geographic Distribution & Maps (click to load)", expanded=False):
     st.header('Geographic Distribution', divider='gray')
+    st.markdown("[Explore garnet locations in the ArcGIS map](https://tinyurl.com/HimalayanGarnetMap)")
 
     # Check if we have coordinate data
     if 'Latitude' in filtered_df.columns and 'Longitude' in filtered_df.columns:
