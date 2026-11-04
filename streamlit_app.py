@@ -1,4 +1,5 @@
 import streamlit as st
+import submission
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -940,8 +941,8 @@ if temperature_range_global != temperature_bounds:
     temperature = pd.to_numeric(filtered_df['Peak_Temperature_C'], errors='coerce')
     filtered_df = filtered_df[temperature.between(*temperature_range_global)]
 
-overview_tab, explore_tab, chemistry_tab, pt_tab, match_tab, docs_tab = st.tabs(
-    ['Overview', 'Explore', 'Chemistry', 'P-T', 'Compare Your Garnets', 'Data & Docs']
+overview_tab, explore_tab, chemistry_tab, pt_tab, match_tab, submit_tab, docs_tab = st.tabs(
+    ['Overview', 'Explore', 'Chemistry', 'P-T', 'Compare Your Garnets', 'Submit Data', 'Data & Docs']
 )
 
 with overview_tab:
@@ -1847,6 +1848,89 @@ with match_tab:
             except Exception as e:
                 st.error(f"❌ Unexpected error processing file: {str(e)}")
                 st.info("Please check your CSV file format and try again. If the problem persists, contact support.")
+
+with submit_tab:
+    st.subheader('Submit new garnet data')
+    st.markdown(
+        'Contribute new analyses to keep the database current. Your file is checked immediately, '
+        'then sent to a **staging area for curator review**. It is never added to the public dataset automatically.'
+    )
+    st.download_button(
+        'Download CSV template', submission.template_csv(), 'garnet_submission_template.csv', 'text/csv',
+        key='submission_template_download'
+    )
+    st.caption(
+        'Template columns follow the Data Dictionary. Normalized oxides, apfu, end-members and cluster '
+        'are calculated by the curators. Pressure in kbar, temperature in °C, oxides in wt%, '
+        'coordinates in decimal degrees.'
+    )
+
+    st.markdown('**1. Contributor and source**')
+    meta_col1, meta_col2 = st.columns(2)
+    with meta_col1:
+        sub_name = st.text_input('Name', key='sub_name')
+        sub_institution = st.text_input('Institution', key='sub_institution')
+        sub_email = st.text_input('Contact email', key='sub_email')
+    with meta_col2:
+        sub_doi = st.text_input('DOI of the publication (published data)', key='sub_doi')
+        sub_repo = st.text_input('Repository link (unpublished data)', key='sub_repo',
+                                 help='For example a Zenodo, Figshare or GitHub link.')
+        sub_notes = st.text_area('Notes for the curators (optional)', key='sub_notes', height=68)
+
+    st.markdown('**2. Upload and check your file**')
+    sub_file = st.file_uploader('CSV file', type=['csv'], key='submission_upload')
+
+    if sub_file is not None:
+        sub_bytes = sub_file.getvalue()
+        sub_df, read_error = submission.read_upload(sub_bytes)
+        if read_error:
+            st.error(read_error)
+        else:
+            report, _ = submission.validate_dataframe(sub_df, garnet_df, lithology_options)
+            st.write(f'{len(sub_df):,} rows read.')
+            if report.errors:
+                st.error(f'{len(report.errors)} problem(s) must be fixed before you can submit:')
+                st.dataframe(pd.DataFrame(report.errors), hide_index=True, width='stretch')
+            if report.warnings:
+                st.warning(f'{len(report.warnings)} item(s) to review:')
+                st.dataframe(pd.DataFrame(report.warnings), hide_index=True, width='stretch')
+            if report.ok:
+                st.success('All required checks passed.')
+
+            st.markdown('**3. Submit for review**')
+            meta_errors = submission.validate_metadata(sub_name, sub_email, sub_institution, sub_doi, sub_repo)
+            for message in meta_errors:
+                st.error(message)
+            warnings_ok = st.checkbox(
+                'I have reviewed the warnings above.', key='sub_ack', disabled=not report.warnings
+            ) if report.warnings else True
+            consent = st.checkbox(
+                'I have the right to share these data and agree to their release under the database license.',
+                key='sub_consent'
+            )
+            configured = submission.staging_configured(st.secrets)
+            if not configured:
+                st.info('Submissions are not yet enabled on this site (staging is not configured).')
+            can_submit = report.ok and not meta_errors and warnings_ok and consent and configured
+            if st.session_state.get('sub_count', 0) >= 3:
+                can_submit = False
+                st.info('Submission limit reached for this session.')
+            if st.button('Submit for review', disabled=not can_submit, key='sub_submit'):
+                try:
+                    sub_id, _issue_url = submission.stage_submission(
+                        sub_bytes,
+                        {
+                            'name': sub_name.strip(), 'institution': sub_institution.strip(),
+                            'email': sub_email.strip(), 'doi': submission.normalize_doi(sub_doi) or '',
+                            'repository_link': sub_repo.strip(), 'notes': sub_notes.strip(),
+                            'rows': len(sub_df), 'warnings': len(report.warnings),
+                        },
+                        st.secrets['STAGING_GITHUB_TOKEN'], st.secrets['STAGING_GITHUB_REPO'],
+                    )
+                    st.session_state['sub_count'] = st.session_state.get('sub_count', 0) + 1
+                    st.success(f'Thank you! Submission {sub_id} was received and is awaiting curator review.')
+                except Exception:
+                    st.error('The submission could not be saved. Please try again later or contact the curators.')
 
 with docs_tab:
     # Download data
