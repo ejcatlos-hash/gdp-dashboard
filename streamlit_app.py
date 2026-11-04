@@ -541,6 +541,32 @@ st.markdown(
         .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div>div>div {
             border-radius: 0.4rem;
         }
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 0.5rem;
+            border-bottom: none;
+            flex-wrap: wrap;
+        }
+        .stTabs [data-baseweb="tab"] {
+            height: auto;
+            padding: 0.55rem 1.1rem;
+            border: 2px solid #8C1C2B;
+            border-radius: 0.6rem;
+            background: transparent;
+        }
+        .stTabs [data-baseweb="tab"] p {
+            font-size: 1.05rem;
+            font-weight: 600;
+            color: #8C1C2B;
+        }
+        .stTabs [aria-selected="true"] {
+            background: #8C1C2B;
+        }
+        .stTabs [aria-selected="true"] p {
+            color: #FFFFFF;
+        }
+        .stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] {
+            display: none;
+        }
     </style>
     """,
     unsafe_allow_html=True
@@ -915,7 +941,7 @@ if temperature_range_global != temperature_bounds:
     filtered_df = filtered_df[temperature.between(*temperature_range_global)]
 
 overview_tab, explore_tab, chemistry_tab, pt_tab, match_tab, docs_tab = st.tabs(
-    ['Overview', 'Explore', 'Chemistry', 'P-T', 'Match', 'Data & Docs']
+    ['Overview', 'Explore', 'Chemistry', 'P-T', 'Compare Your Garnets', 'Data & Docs']
 )
 
 with overview_tab:
@@ -962,7 +988,7 @@ with overview_tab:
             height=600
         )
         fig.update_layout(
-            map={'style': map_styles[map_style]},
+            map={'style': map_styles[map_style], 'center': {'lat': 28.5, 'lon': 84.0}, 'zoom': 4},
             dragmode='select',
             margin={'r': 0, 't': 45, 'l': 0, 'b': 0}
         )
