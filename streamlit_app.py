@@ -533,7 +533,7 @@ st.markdown(
     <div class="hero-header" style="background: linear-gradient(135deg, #0b3d91 0%, #1d4ed8 100%); padding: 2rem; border-radius: 1rem; color: white; margin-bottom: 1.5rem;">
         <h1 style="margin:0; font-size:2.6rem; font-weight:700; line-height:1.05;">💎 Himalayan Garnet Analysis Database</h1>
         <p style="margin:0.75rem 0 0; font-size:1.05rem; max-width:850px; opacity:0.92;">A professional, geochemically curated database of Himalayan garnet analyses with filtering, comparison, and reporting tools.</p>
-        <p style="margin:0.8rem 0 0; font-size:0.95rem; max-width:850px; opacity:0.85;">Dataset version 1.0. Please cite: Catlos, Elizabeth. 2026. Replication Data for: Himalayan Garnet Analysis Database, Version 1.0. Texas Data Repository. https://doi.org/10.18738/T8/GZLMUW. CC0 1.0.</p>
+        <p style="margin:0.8rem 0 0; font-size:0.95rem; max-width:850px; opacity:0.85;">Dataset version 1.0. Please cite to: Catlos, Elizabeth, 2026, "Replication Data for: Himalayan Garnet Analysis Database, Version 1.0", https://doi.org/10.18738/T8/GZLMUW, Texas Data Repository, V5, UNF:6:2lCNPA4JWHY5wpBttC3yMA== [fileUNF]</p>
     </div>
     """,
     unsafe_allow_html=True
