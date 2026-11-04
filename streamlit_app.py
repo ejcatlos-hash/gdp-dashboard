@@ -1985,11 +1985,22 @@ with himalaya_tab:
             mdf = mdf.assign(Cluster=mdf['Cluster'].astype(str))
         fig_map = px.scatter_map(
             mdf, lat='Latitude', lon='Longitude', color=color_by,
-            hover_name='Garnet_ID', hover_data=['Author_Sample_ID', 'Formation_Name', 'MDA_Ma'],
-            zoom=5, height=500,
+            hover_name='Garnet_ID', custom_data=['Garnet_ID'],
+            hover_data=['Author_Sample_ID', 'Formation_Name', 'MDA_Ma'],
+            center={'lat': (siw['Latitude'].min() + siw['Latitude'].max()) / 2,
+                    'lon': (siw['Longitude'].min() + siw['Longitude'].max()) / 2},
+            zoom=4.6, height=500,
         )
-        fig_map.update_layout(map_style='open-street-map', margin=dict(l=0, r=0, t=0, b=0))
-        st.plotly_chart(fig_map, width='stretch')
+        fig_map.update_layout(map_style='open-street-map', margin=dict(l=0, r=0, t=0, b=0), dragmode='select')
+        map_event = st.plotly_chart(
+            fig_map, width='stretch', on_select='rerun',
+            selection_mode=('box', 'lasso', 'points'), key='siw_map',
+        )
+        st.caption('Use the box or lasso tool in the map toolbar to select samples.')
+        picked_ids = {pt['customdata'][0] for pt in (map_event.selection.get('points', []) if map_event else []) if pt.get('customdata')}
+        if picked_ids:
+            sdf = sdf[sdf['Garnet_ID'].isin(picked_ids)]
+            st.success(f'{len(sdf):,} garnets selected on the map; charts below show only these.')
 
         st.subheader('Garnet chemistry')
         t1, t2 = st.columns(2)
