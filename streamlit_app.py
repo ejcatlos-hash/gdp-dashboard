@@ -1856,7 +1856,7 @@ with submit_tab:
         'then sent to a **staging area for curator review**. It is never added to the public dataset automatically.'
     )
     st.download_button(
-        'Download CSV template', submission.template_csv(), 'garnet_submission_template.csv', 'text/csv',
+        'Download bedrock CSV template', submission.template_csv(), 'garnet_submission_template.csv', 'text/csv',
         key='submission_template_download'
     )
     st.caption(
@@ -1957,12 +1957,22 @@ with himalaya_tab:
     for c in ends + ['Latitude', 'Longitude', 'MDA_Ma']:
         siw[c] = pd.to_numeric(siw[c], errors='coerce')
 
-    f1, f2 = st.columns(2)
+    o1, o2, o3, o4 = st.columns(4)
+    o1.metric('Total Analyses', len(siw))
+    o2.metric('Countries', siw['Country'].nunique())
+    o3.metric('Geographic Sites', siw[['Latitude', 'Longitude']].drop_duplicates().shape[0])
+    o4.metric('Lithology Types', siw['Lithology'].nunique())
+
+    f1, f2, f3 = st.columns(3)
     countries = sorted(siw['Country'].dropna().unique())
     sel_c = f1.multiselect('Country', countries, default=countries, key='siw_country')
-    forms = sorted(siw[siw['Country'].isin(sel_c)]['Formation_Name'].dropna().unique())
-    sel_f = f2.multiselect('Formation', forms, default=forms, key='siw_form')
-    sdf = siw[siw['Country'].isin(sel_c) & siw['Formation_Name'].isin(sel_f)]
+    base = siw[siw['Country'].isin(sel_c)]
+    groups = sorted(base['Stratigraphic_Group'].dropna().unique())
+    sel_g = f2.multiselect('Stratigraphic group', groups, default=groups, key='siw_group')
+    base = base[base['Stratigraphic_Group'].isin(sel_g)]
+    forms = sorted(base['Formation_Name'].dropna().unique())
+    sel_f = f3.multiselect('Formation', forms, default=forms, key='siw_form')
+    sdf = base[base['Formation_Name'].isin(sel_f)]
     st.caption(f'{len(sdf):,} of {len(siw):,} analyses')
 
     if sdf.empty:
