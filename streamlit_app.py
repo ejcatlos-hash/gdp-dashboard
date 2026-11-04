@@ -970,7 +970,7 @@ if 'Latitude' in filtered_df.columns and 'Longitude' in filtered_df.columns:
         (filtered_df['Longitude'] <= max_lon)
     ]
 
-st.subheader(f"Showing {len(filtered_df)} samples")
+st.subheader(f"Showing {len(filtered_df)} analyses")
 
 # Data preview
 st.subheader("Sample Data Preview")
