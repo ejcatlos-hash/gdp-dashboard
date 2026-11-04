@@ -941,8 +941,8 @@ if temperature_range_global != temperature_bounds:
     temperature = pd.to_numeric(filtered_df['Peak_Temperature_C'], errors='coerce')
     filtered_df = filtered_df[temperature.between(*temperature_range_global)]
 
-overview_tab, explore_tab, chemistry_tab, pt_tab, match_tab, submit_tab, docs_tab = st.tabs(
-    ['Overview', 'Explore', 'Chemistry', 'P-T', 'Compare Your Garnets', 'Submit Data', 'Data & Docs']
+overview_tab, explore_tab, chemistry_tab, pt_tab, match_tab, submit_tab, himalaya_tab, docs_tab = st.tabs(
+    ['Overview', 'Explore', 'Chemistry', 'P-T', 'Compare Your Garnets', 'Submit Data', 'Himalayan detrital garnets', 'Data & Docs']
 )
 
 with overview_tab:
@@ -1931,6 +1931,74 @@ with submit_tab:
                     st.success(f'Thank you! Submission {sub_id} was received and is awaiting curator review.')
                 except Exception:
                     st.error('The submission could not be saved. Please try again later or contact the curators.')
+
+@st.cache_data
+def get_siwalik_data():
+    return pd.read_csv(Path(__file__).parent/'data/Siwalik.csv', encoding='utf-8-sig').rename(
+        columns=lambda c: c.strip().lstrip('\ufeff')).rename(columns={'SGarnet_ID': 'Garnet_ID'})
+
+
+with himalaya_tab:
+    st.header('Himalayan detrital garnets', divider='gray')
+    st.write(
+        'Detrital garnet analyses from Siwalik (Himalayan foreland basin) sandstones, with major-element '
+        'chemistry, end-member proportions, sample locations and depositional ages.'
+    )
+    siw = get_siwalik_data()
+    st.download_button(
+        'Download Siwalik.csv',
+        data=(Path(__file__).parent/'data/Siwalik.csv').read_bytes(),
+        file_name='Siwalik.csv',
+        mime='text/csv',
+        key='siwalik_download',
+    )
+
+    ends = ['Almandine_%S', 'Spessartine_%S', 'Pyrope_%S', 'Grossular_%S']
+    for c in ends + ['Latitude', 'Longitude', 'MDA_Ma']:
+        siw[c] = pd.to_numeric(siw[c], errors='coerce')
+
+    f1, f2 = st.columns(2)
+    countries = sorted(siw['Country'].dropna().unique())
+    sel_c = f1.multiselect('Country', countries, default=countries, key='siw_country')
+    forms = sorted(siw[siw['Country'].isin(sel_c)]['Formation_Name'].dropna().unique())
+    sel_f = f2.multiselect('Formation', forms, default=forms, key='siw_form')
+    sdf = siw[siw['Country'].isin(sel_c) & siw['Formation_Name'].isin(sel_f)]
+    st.caption(f'{len(sdf):,} of {len(siw):,} analyses')
+
+    if sdf.empty:
+        st.info('No analyses match the selected filters.')
+    else:
+        st.subheader('Map')
+        color_by = st.selectbox('Colour map points by', ['Formation_Name', 'Country', 'Cluster'] + ends + ['MDA_Ma'], key='siw_color')
+        mdf = sdf.dropna(subset=['Latitude', 'Longitude'])
+        if color_by in ('Cluster',):
+            mdf = mdf.assign(Cluster=mdf['Cluster'].astype(str))
+        fig_map = px.scatter_map(
+            mdf, lat='Latitude', lon='Longitude', color=color_by,
+            hover_name='Garnet_ID', hover_data=['Author_Sample_ID', 'Formation_Name', 'MDA_Ma'],
+            zoom=5, height=500,
+        )
+        fig_map.update_layout(map_style='open-street-map', margin=dict(l=0, r=0, t=0, b=0))
+        st.plotly_chart(fig_map, width='stretch')
+
+        st.subheader('Garnet chemistry')
+        t1, t2 = st.columns(2)
+        with t1:
+            fig_t = px.scatter_ternary(
+                sdf.dropna(subset=ends), a='Almandine_%S', b='Spessartine_%S', c='Pyrope_%S',
+                color='Formation_Name', hover_name='Garnet_ID', height=450,
+            )
+            st.plotly_chart(fig_t, width='stretch')
+        with t2:
+            num = [c for c in siw.columns if c.endswith('_apfu') or c.endswith('_%S') or c.endswith('_Swt%')]
+            x = st.selectbox('X axis', num, index=num.index('Almandine_%S') if 'Almandine_%S' in num else 0, key='siw_x')
+            y = st.selectbox('Y axis', num, index=num.index('Grossular_%S') if 'Grossular_%S' in num else 1, key='siw_y')
+            fig_s = px.scatter(sdf, x=x, y=y, color='Formation_Name', hover_name='Garnet_ID', height=330)
+            st.plotly_chart(fig_s, width='stretch')
+
+        with st.expander('Data table'):
+            st.dataframe(sdf, width='stretch')
+
 
 with docs_tab:
     # Download data
