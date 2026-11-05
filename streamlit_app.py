@@ -1967,6 +1967,17 @@ with himalaya_tab:
     forms = sorted(base['Formation_Name'].dropna().unique())
     sel_f = f3.multiselect('Formation', forms, default=forms, key='siw_form')
     sdf = base[base['Formation_Name'].isin(sel_f)]
+
+    ages = siw['MDA_Ma'].dropna()
+    if not ages.empty:
+        a1, a2 = st.columns([3, 1])
+        age_min, age_max = float(ages.min()), float(ages.max())
+        age_range = a1.slider(
+            'Maximum depositional age (MDA, Ma)', age_min, age_max, (age_min, age_max), key='siw_mda',
+        )
+        keep_unknown = a2.checkbox('Include samples without MDA', value=True, key='siw_mda_unknown')
+        in_range = sdf['MDA_Ma'].between(*age_range)
+        sdf = sdf[in_range | (keep_unknown & sdf['MDA_Ma'].isna())]
     st.caption(f'{len(sdf):,} of {len(siw):,} analyses')
 
     if sdf.empty:
