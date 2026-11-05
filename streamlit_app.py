@@ -1962,10 +1962,10 @@ with himalaya_tab:
     sel_c = f1.multiselect('Country', countries, default=countries, key='siw_country')
     base = siw[siw['Country'].isin(sel_c)]
     groups = sorted(base['Stratigraphic_Group'].dropna().unique())
-    sel_g = f2.multiselect('Stratigraphic group', groups, default=groups, key='siw_group')
+    sel_g = f2.multiselect('Stratigraphic group', groups, default=groups)
     base = base[base['Stratigraphic_Group'].isin(sel_g)]
     forms = sorted(base['Formation_Name'].dropna().unique())
-    sel_f = f3.multiselect('Formation', forms, default=forms, key='siw_form')
+    sel_f = f3.multiselect('Formation', forms, default=forms)
     sdf = base[base['Formation_Name'].isin(sel_f)]
 
     age_min, age_max = float(siw['MDA_Ma'].min()), float(siw['MDA_Ma'].max())
