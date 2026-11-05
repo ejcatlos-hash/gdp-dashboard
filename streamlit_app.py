@@ -1945,6 +1945,8 @@ with himalaya_tab:
         'chemistry, end-member proportions, sample locations and depositional ages.'
     )
     siw = get_siwalik_data()
+    # Rows without a formation would otherwise be dropped by the filters
+    siw['Formation_Name'] = siw['Formation_Name'].fillna('Unspecified')
     ends = ['Almandine_%S', 'Spessartine_%S', 'Pyrope_%S', 'Grossular_%S']
     for c in ends + ['Latitude', 'Longitude', 'MDA_Ma']:
         siw[c] = pd.to_numeric(siw[c], errors='coerce')
@@ -1965,6 +1967,12 @@ with himalaya_tab:
     forms = sorted(base['Formation_Name'].dropna().unique())
     sel_f = f3.multiselect('Formation', forms, default=forms, key='siw_form')
     sdf = base[base['Formation_Name'].isin(sel_f)]
+
+    age_min, age_max = float(siw['MDA_Ma'].min()), float(siw['MDA_Ma'].max())
+    age_range = st.slider(
+        'Maximum depositional age (MDA, Ma)', age_min, age_max, (age_min, age_max), key='siw_mda',
+    )
+    sdf = sdf[sdf['MDA_Ma'].between(*age_range)]
     st.caption(f'{len(sdf):,} of {len(siw):,} analyses')
 
     if sdf.empty:
