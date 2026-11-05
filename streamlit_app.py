@@ -1941,7 +1941,7 @@ def get_siwalik_data():
 with himalaya_tab:
     st.header('Himalayan detrital garnets', divider='gray')
     st.write(
-        'Detrital garnet analyses from Siwalik (Himalayan foreland basin) sandstones, with major-element '
+        'Detrital garnet analyses from Siwalik (Himalayan foreland basin) sedimentary rocks, with major-element '
         'chemistry, end-member proportions, sample locations and depositional ages.'
     )
     siw = get_siwalik_data()
