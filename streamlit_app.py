@@ -1957,21 +1957,25 @@ with himalaya_tab:
     o3.metric('Geographic Sites', siw[['Latitude', 'Longitude']].drop_duplicates().shape[0])
     o4.metric('Lithology Types', siw['Lithology'].nunique())
 
+    siw_v = st.session_state.get('siw_reset', 0)
     f1, f2, f3 = st.columns(3)
     countries = sorted(siw['Country'].dropna().unique())
-    sel_c = f1.multiselect('Country', countries, default=countries, key='siw_country')
+    sel_c = f1.multiselect('Country', countries, default=countries, key=f'siw_country_{siw_v}')
     base = siw[siw['Country'].isin(sel_c)]
     groups = sorted(base['Stratigraphic_Group'].dropna().unique())
-    sel_g = f2.multiselect('Stratigraphic group', groups, default=groups)
+    sel_g = f2.multiselect('Stratigraphic group', groups, default=groups, key=f'siw_group_{siw_v}_{abs(hash(tuple(groups)))}')
     base = base[base['Stratigraphic_Group'].isin(sel_g)]
     forms = sorted(base['Formation_Name'].dropna().unique())
-    sel_f = f3.multiselect('Formation', forms, default=forms)
+    sel_f = f3.multiselect('Formation', forms, default=forms, key=f'siw_form_{siw_v}_{abs(hash(tuple(forms)))}')
     sdf = base[base['Formation_Name'].isin(sel_f)]
 
     age_min, age_max = float(siw['MDA_Ma'].min()), float(siw['MDA_Ma'].max())
     age_range = st.slider(
-        'Maximum depositional age (MDA, Ma)', age_min, age_max, (age_min, age_max), key='siw_mda',
+        'Maximum depositional age (MDA, Ma)', age_min, age_max, (age_min, age_max), key=f'siw_mda_{siw_v}',
     )
+    if f3.button('Clear all filters', key='siw_clear'):
+        st.session_state['siw_reset'] = siw_v + 1
+        st.rerun()
     sdf = sdf[sdf['MDA_Ma'].between(*age_range)]
     st.caption(f'{len(sdf):,} of {len(siw):,} analyses')
 
@@ -1999,7 +2003,7 @@ with himalaya_tab:
         )
         map_event = st.plotly_chart(
             fig_map, width='stretch', on_select='rerun',
-            selection_mode=('box', 'lasso', 'points'), key='siw_map',
+            selection_mode=('box', 'lasso', 'points'), key=f'siw_map_{siw_v}_{abs(hash((tuple(sel_c), tuple(sel_g), tuple(sel_f), age_range)))}',
         )
         st.caption('Use the box or lasso tool in the map toolbar to select samples.')
         picked_ids = {pt['customdata'][0] for pt in (map_event.selection.get('points', []) if map_event else []) if pt.get('customdata')}
