@@ -1959,15 +1959,22 @@ with himalaya_tab:
 
     siw_v = st.session_state.get('siw_reset', 0)
     f1, f2, f3 = st.columns(3)
+    # An empty selection means "no filter", matching the sidebar filters
     countries = sorted(siw['Country'].dropna().unique())
-    sel_c = f1.multiselect('Country', countries, default=countries, key=f'siw_country_{siw_v}')
-    base = siw[siw['Country'].isin(sel_c)]
+    sel_c = f1.multiselect('Country', countries, key=f'siw_country_{siw_v}')
+    base = siw[siw['Country'].isin(sel_c)] if sel_c else siw
     groups = sorted(base['Stratigraphic_Group'].dropna().unique())
-    sel_g = f2.multiselect('Stratigraphic group', groups, default=groups, key=f'siw_group_{siw_v}_{abs(hash(tuple(groups)))}')
-    base = base[base['Stratigraphic_Group'].isin(sel_g)]
+    group_key = f'siw_group_{siw_v}'
+    if group_key in st.session_state:
+        st.session_state[group_key] = [v for v in st.session_state[group_key] if v in groups]
+    sel_g = f2.multiselect('Stratigraphic group', groups, key=group_key)
+    base = base[base['Stratigraphic_Group'].isin(sel_g)] if sel_g else base
     forms = sorted(base['Formation_Name'].dropna().unique())
-    sel_f = f3.multiselect('Formation', forms, default=forms, key=f'siw_form_{siw_v}_{abs(hash(tuple(forms)))}')
-    sdf = base[base['Formation_Name'].isin(sel_f)]
+    form_key = f'siw_form_{siw_v}'
+    if form_key in st.session_state:
+        st.session_state[form_key] = [v for v in st.session_state[form_key] if v in forms]
+    sel_f = f3.multiselect('Formation', forms, key=form_key)
+    sdf = base[base['Formation_Name'].isin(sel_f)] if sel_f else base
 
     age_min, age_max = float(siw['MDA_Ma'].min()), float(siw['MDA_Ma'].max())
     age_range = st.slider(
