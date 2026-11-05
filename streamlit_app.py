@@ -1945,14 +1945,6 @@ with himalaya_tab:
         'chemistry, end-member proportions, sample locations and depositional ages.'
     )
     siw = get_siwalik_data()
-    st.download_button(
-        'Download Siwalik.csv',
-        data=(Path(__file__).parent/'data/Siwalik.csv').read_bytes(),
-        file_name='Siwalik.csv',
-        mime='text/csv',
-        key='siwalik_download',
-    )
-
     ends = ['Almandine_%S', 'Spessartine_%S', 'Pyrope_%S', 'Grossular_%S']
     for c in ends + ['Latitude', 'Longitude', 'MDA_Ma']:
         siw[c] = pd.to_numeric(siw[c], errors='coerce')
@@ -2007,23 +1999,38 @@ with himalaya_tab:
             sdf = sdf[sdf['Garnet_ID'].isin(picked_ids)]
             st.success(f'{len(sdf):,} garnets selected on the map; charts below show only these.')
 
-        st.subheader('Garnet chemistry')
-        t1, t2 = st.columns(2)
-        with t1:
-            fig_t = px.scatter_ternary(
-                sdf.dropna(subset=ends), a='Almandine_%S', b='Spessartine_%S', c='Pyrope_%S',
-                color='Formation_Name', hover_name='Garnet_ID', height=450,
-            )
-            st.plotly_chart(fig_t, width='stretch')
-        with t2:
-            num = [c for c in siw.columns if c.endswith('_apfu') or c.endswith('_%S') or c.endswith('_Swt%')]
-            x = st.selectbox('X axis', num, index=num.index('Almandine_%S') if 'Almandine_%S' in num else 0, key='siw_x')
-            y = st.selectbox('Y axis', num, index=num.index('Grossular_%S') if 'Grossular_%S' in num else 1, key='siw_y')
-            fig_s = px.scatter(sdf, x=x, y=y, color='Formation_Name', hover_name='Garnet_ID', height=330)
-            st.plotly_chart(fig_s, width='stretch')
+        chem_tab, table_tab, dl_tab = st.tabs(['Garnet chemistry', 'Data table', 'Download'])
+        with chem_tab:
+            t1, t2 = st.columns(2)
+            with t1:
+                fig_t = px.scatter_ternary(
+                    sdf.dropna(subset=ends), a='Almandine_%S', b='Spessartine_%S', c='Pyrope_%S',
+                    color='Formation_Name', hover_name='Garnet_ID', height=450,
+                )
+                st.plotly_chart(fig_t, width='stretch')
+            with t2:
+                num = [c for c in siw.columns if c.endswith('_apfu') or c.endswith('_%S') or c.endswith('_Swt%')]
+                x = st.selectbox('X axis', num, index=num.index('Almandine_%S') if 'Almandine_%S' in num else 0, key='siw_x')
+                y = st.selectbox('Y axis', num, index=num.index('Grossular_%S') if 'Grossular_%S' in num else 1, key='siw_y')
+                fig_s = px.scatter(sdf, x=x, y=y, color='Formation_Name', hover_name='Garnet_ID', height=330)
+                st.plotly_chart(fig_s, width='stretch')
 
-        with st.expander('Data table'):
+        with table_tab:
             st.dataframe(sdf, width='stretch')
+
+        with dl_tab:
+            st.write('Download the full Himalayan detrital garnet dataset, or only the analyses currently selected by the filters and map.')
+            d1, d2 = st.columns(2)
+            d1.download_button(
+                f'Download full dataset ({len(siw):,} analyses)',
+                data=(Path(__file__).parent/'data/Siwalik.csv').read_bytes(),
+                file_name='Siwalik.csv', mime='text/csv', key='siwalik_download',
+            )
+            d2.download_button(
+                f'Download selection ({len(sdf):,} analyses)',
+                data=sdf.to_csv(index=False).encode('utf-8'),
+                file_name='Siwalik_filtered.csv', mime='text/csv', key='siwalik_filtered_download',
+            )
 
 
 with docs_tab:
