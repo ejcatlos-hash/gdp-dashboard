@@ -1945,6 +1945,8 @@ with himalaya_tab:
         'chemistry, end-member proportions, sample locations and depositional ages.'
     )
     siw = get_siwalik_data()
+    # Rows without a formation would otherwise be dropped by the filters
+    siw['Formation_Name'] = siw['Formation_Name'].fillna('Unspecified')
     ends = ['Almandine_%S', 'Spessartine_%S', 'Pyrope_%S', 'Grossular_%S']
     for c in ends + ['Latitude', 'Longitude', 'MDA_Ma']:
         siw[c] = pd.to_numeric(siw[c], errors='coerce')
