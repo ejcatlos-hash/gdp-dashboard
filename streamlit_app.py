@@ -2020,19 +2020,57 @@ with himalaya_tab:
 
         chem_tab, table_tab, dl_tab = st.tabs(['Garnet chemistry', 'Data table', 'Download'])
         with chem_tab:
-            t1, t2 = st.columns(2)
-            with t1:
-                fig_t = px.scatter_ternary(
-                    sdf.dropna(subset=ends), a='Almandine_%S', b='Spessartine_%S', c='Pyrope_%S',
-                    color='Formation_Name', hover_name='Garnet_ID', height=450,
+            ternary_options = {
+                'Almandine-Pyrope-Grossular': {
+                    'Almandine': 'Almandine_%S',
+                    'Pyrope': 'Pyrope_%S',
+                    'Grossular': 'Grossular_%S',
+                },
+                'Pyrope-(Almandine+Spessartine)-Grossular': {
+                    'Pyrope': 'Pyrope_%S',
+                    'Almandine+Spessartine': ['Almandine_%S', 'Spessartine_%S'],
+                    'Grossular': 'Grossular_%S',
+                },
+                'Grossular-Pyrope-Spessartine': {
+                    'Grossular': 'Grossular_%S',
+                    'Pyrope': 'Pyrope_%S',
+                    'Spessartine': 'Spessartine_%S',
+                },
+                'Grossular-Spessartine-Almandine': {
+                    'Grossular': 'Grossular_%S',
+                    'Spessartine': 'Spessartine_%S',
+                    'Almandine': 'Almandine_%S',
+                },
+                'Spessartine-Grossular-(Almandine+Pyrope)': {
+                    'Spessartine': 'Spessartine_%S',
+                    'Grossular': 'Grossular_%S',
+                    'Almandine+Pyrope': ['Almandine_%S', 'Pyrope_%S'],
+                },
+            }
+            selected_ternary = st.selectbox(
+                'Select Ternary Diagram Type:',
+                options=list(ternary_options),
+                key='siw_ternary',
+            )
+            components = ternary_options[selected_ternary]
+            ternary_data = sdf.dropna(subset=ends)
+            plot_data = pd.DataFrame(index=ternary_data.index)
+            for name, cols in components.items():
+                plot_data[name] = (
+                    ternary_data[cols].sum(axis=1) if isinstance(cols, list) else ternary_data[cols]
                 )
-                st.plotly_chart(fig_t, width='stretch')
-            with t2:
-                num = [c for c in siw.columns if c.endswith('_apfu') or c.endswith('_%S') or c.endswith('_Swt%')]
-                x = st.selectbox('X axis', num, index=num.index('Almandine_%S') if 'Almandine_%S' in num else 0, key='siw_x')
-                y = st.selectbox('Y axis', num, index=num.index('Grossular_%S') if 'Grossular_%S' in num else 1, key='siw_y')
-                fig_s = px.scatter(sdf, x=x, y=y, color='Formation_Name', hover_name='Garnet_ID', height=330)
-                st.plotly_chart(fig_s, width='stretch')
+            totals = plot_data.sum(axis=1)
+            valid = totals > 0
+            plot_data = plot_data.loc[valid].div(totals.loc[valid], axis=0) * 100
+            plot_data['Formation_Name'] = ternary_data.loc[valid, 'Formation_Name']
+            plot_data['Garnet_ID'] = ternary_data.loc[valid, 'Garnet_ID']
+            a, b, c = components
+            fig_t = px.scatter_ternary(
+                plot_data, a=a, b=b, c=c, color='Formation_Name',
+                hover_name='Garnet_ID', height=450,
+                title=f'Garnet Compositions in {selected_ternary} Space',
+            )
+            st.plotly_chart(fig_t, width='stretch')
 
         with table_tab:
             st.dataframe(sdf, width='stretch')
